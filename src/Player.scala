@@ -5,21 +5,64 @@ import scala.collection.mutable.ArrayBuffer
 object Player extends App {
   val game = init(initHelper.getValues)
   def init(values: InitValues) = { initHelper.init(values) }
-  game.play(RandomAI)
+  game.play(new ClassicAI)
 }
 
-trait AI {  def act(game: Game) }
-object RandomAI extends AI {
+trait AI {
+  def act(game: Game)
+  def buildCommand(from: Zone, to: Zone, nbPod: Int) = {
+    from.myPod -= 1
+    to.myPod += 1
+    nbPod + " " + from.id + " " + to.id + " "
+  }
+}
+// RANK : 333 / 912
+class RandomAI extends ClassicAI {  override def eval(zone: Zone, game: Game) = {scala.util.Random.nextFloat()}}
+class ZergAI extends ClassicAI {    override def eval(zone: Zone, game: Game) = {-zone.distanceFromEnemy}}
+
+class ClassicAI extends AI {
+
+  def eval(zone: Zone, game: Game) = {
+    var value = 1f
+    value += zone.platinum
+    value += zone.otherPod
+    value += util.Random.nextFloat() / 10
+    if (zone.owner != game.me.id)
+      value += 3
+    for (neigh <- zone.links)
+      evalNeigh(neigh)
+    value /= 1 + zone.myPod
+    if (zone.myPod > 3) {
+      value /= 3
+      value -= zone.myPod
+    }
+
+    def evalNeigh(neigh: Zone): Unit = {
+      if (neigh.id != game.me.id) {
+        value += 1
+        value += neigh.platinum / 6
+      } else
+        value -= 1
+      value -= neigh.myPod
+    }
+
+    value += (game.fartest / 1 + zone.distanceFromEnemy)
+
+    value
+  }
+
   override def act(game: Game) = {
     var command = ""
-    for (zone <- game.myPodZones)
-      command += "1 " + zone.id + " " + zone.links(randomLink(zone)).id + " "
+    for (zone <- game.myPodZones) {
+      val destinations = zone.links.sortWith(eval(_, game) > eval(_, game))
+      command += buildCommand(zone, destinations(0), 1)
+    }
     println(command)
   }
-  def randomLink(zone: Zone) = {    scala.util.Random.nextInt(zone.links.length)  }
 }
 
-case class Game(me: Competitor, other: Competitor, map: Map, var myPlatinum: Int, myPodZones: ArrayBuffer[Zone]) {
+case class Game(me: Competitor, other: Competitor, map: Map, var myPlatinum: Int, myPodZones: ArrayBuffer[Zone], var fartest: Int = -1) {
+
   def play(ai: AI) = {
     while (true) {
       myPlatinum = readInt
@@ -28,14 +71,36 @@ case class Game(me: Competitor, other: Competitor, map: Map, var myPlatinum: Int
         // visible: 1 if one of your units can see this tile, else 0
         // platinum: the amount of Platinum this zone can provide (0 if hidden by fog)
         val Array(zoneId, ownerid, podsp0, podsp1, visible, platinum) = for (i <- readLine split " ") yield i.toInt
-        zone.owner = ownerid
-        if (me.id == 0)  updatePods(zone, podsp0, podsp1)
-        else             updatePods(zone, podsp1, podsp0)
-        if (visible == 1) zone.platinum = platinum
-        zone.visible = visible
+        findEnemyBase(zone, ownerid)
+        updateDatas(zone, ownerid, podsp0, podsp1, visible, platinum)
       }
       ai.act(this)
       println("WAIT") // second line no longer used (see the protocol in the statement for details)
+    }
+  }
+
+  def updateDatas(zone: Zone, ownerid: Int, podsp0: Int, podsp1: Int, visible: Int, platinum: Int): Unit = {
+    zone.owner = ownerid
+    zone.visible = visible
+    if (me.id == 0) updatePods(zone, podsp0, podsp1)
+    else updatePods(zone, podsp1, podsp0)
+    if (platinum != 0) zone.platinum = platinum
+  }
+
+  def computeDistances(zone: Zone, currentDist: Int): Unit = {
+    if (zone.distanceFromEnemy != -1 && currentDist > zone.distanceFromEnemy)
+      return
+    zone.distanceFromEnemy = currentDist
+    if (currentDist > fartest)
+      fartest = currentDist
+    for (neigh <- zone.links)
+      computeDistances(neigh, currentDist + 1)
+  }
+
+  def findEnemyBase(zone: Zone, ownerid: Int): Unit = {
+    if (other.base == null && ownerid == other.id) {
+      other.base = zone
+      computeDistances(zone, 0)
     }
   }
 
@@ -47,8 +112,8 @@ case class Game(me: Competitor, other: Competitor, map: Map, var myPlatinum: Int
   }
 }
 
-case class Competitor(id: Int, var ownedZones: Int)
-case class Zone(id: Int, var platinum: Int, var links: Array[Zone], var owner: Int, var myPod: Int, var otherPod: Int, var visible: Int)
+case class Competitor(id: Int, var ownedZones: Int, var base: Zone = null)
+case class Zone(id: Int, var platinum: Int, var links: Array[Zone], var owner: Int, var myPod: Int, var otherPod: Int, var visible: Int, var distanceFromEnemy: Int = -1)
 case class Map(zones: Array[Zone])
 case class InitValues(myId: Int, zoneCount: Int, links: Array[Array[Int]])
 case class Pod(var position: Zone, var canMove: Boolean)
