@@ -44,7 +44,7 @@ class ClassicAI extends AI {
 
   def evalNeigh(neigh: Zone, game: Game, value: Float) = {
     var rep = value
-    if (neigh.id != game.me.id) {
+    if (neigh.owner != game.me.id) {
       rep += 2
       rep += neigh.platinum / 3
     } else
