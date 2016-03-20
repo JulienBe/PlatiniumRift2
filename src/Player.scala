@@ -18,37 +18,41 @@ trait AI {
 }
 // RANK : 333 / 912
 class RandomAI extends ClassicAI {  override def eval(zone: Zone, game: Game) = {scala.util.Random.nextFloat()}}
+// RANK : 192 / 912
 class ZergAI extends ClassicAI {    override def eval(zone: Zone, game: Game) = {-zone.distanceFromEnemy}}
-
+// RANK :  89 / 913
 class ClassicAI extends AI {
 
   def eval(zone: Zone, game: Game) = {
     var value = 1f
-    value += zone.platinum
     value += zone.otherPod
-    value += util.Random.nextFloat() / 10
-    if (zone.owner != game.me.id)
+    value += util.Random.nextFloat()
+    if (zone.owner != game.me.id) {
+      value += zone.platinum
       value += 3
+    }
     for (neigh <- zone.links)
-      evalNeigh(neigh)
+      evalNeigh(neigh, game, value)
     value /= 1 + zone.myPod
+
     if (zone.myPod > 3) {
-      value /= 3
-      value -= zone.myPod
+      value -= zone.myPod * zone.myPod
     }
-
-    def evalNeigh(neigh: Zone): Unit = {
-      if (neigh.id != game.me.id) {
-        value += 1
-        value += neigh.platinum / 6
-      } else
-        value -= 1
-      value -= neigh.myPod
-    }
-
-    value += (game.fartest / 1 + zone.distanceFromEnemy)
-
+    value += (game.fartest - zone.distanceFromEnemy) * 0.5f
     value
+  }
+
+  def evalNeigh(neigh: Zone, game: Game, value: Float) = {
+    var rep = value
+    if (neigh.id != game.me.id) {
+      rep += 2
+      rep += neigh.platinum / 3
+    } else
+      rep -= 2
+    if (neigh.myPod >= 3)
+      rep -= neigh.myPod * neigh.myPod
+    rep -= neigh.myPod
+    rep
   }
 
   override def act(game: Game) = {
