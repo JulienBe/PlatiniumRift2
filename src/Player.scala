@@ -17,48 +17,61 @@ trait AI {
   }
 }
 // RANK : 333 / 912
-class RandomAI extends ClassicAI {  override def eval(zone: Zone, game: Game) = {scala.util.Random.nextFloat()}}
+class RandomAI extends ClassicAI {  override def eval(zone: Zone, game: Game, from: Zone) = {scala.util.Random.nextFloat()}}
 // RANK : 192 / 912
-class ZergAI extends ClassicAI {    override def eval(zone: Zone, game: Game) = {-zone.distanceFromEnemy}}
+class ZergAI extends ClassicAI {    override def eval(zone: Zone, game: Game, from: Zone) = {-zone.distanceFromEnemy}}
 // RANK :  89 / 913
 class ClassicAI extends AI {
 
-  def eval(zone: Zone, game: Game) = {
-    var value = 1f
-    value += zone.otherPod
-    value += util.Random.nextFloat()
-    if (zone.owner != game.me.id) {
-      value += zone.platinum
-      value += 3
+  def evalOnResources(zone: Zone, game: Game) = {
+    var value = 0
+    if (!zone.isMine(game))
+      value += zone.platinum * 4
+    for (neigh <- zone.links) {
+      if (!zone.isMine(game))
+        value += neigh.platinum * 2
     }
-    for (neigh <- zone.links)
-      evalNeigh(neigh, game, value)
-    value /= 1 + zone.myPod
-
-    if (zone.myPod > 3) {
-      value -= zone.myPod * zone.myPod
-    }
-    value += (game.fartest - zone.distanceFromEnemy) * 0.5f
     value
   }
 
-  def evalNeigh(neigh: Zone, game: Game, value: Float) = {
-    var rep = value
-    if (neigh.owner != game.me.id) {
-      rep += 2
-      rep += neigh.platinum / 3
-    } else
-      rep -= 2
-    if (neigh.myPod >= 3)
-      rep -= neigh.myPod * neigh.myPod
-    rep -= neigh.myPod
-    rep
+  def evalOnLocation(zone: Zone, game: Game) = {
+    var value = game.fartest - zone.distanceFromEnemy
+    for (neigh <- zone.links)
+      if (neigh.hasNeverBeenSeen())
+        value += 10
+    value
+  }
+
+  def evalOnPod(zone: Zone, game: Game, from: Zone) = {
+    var value = 1f
+    for (neigh <- zone.links)
+      if (neigh.id != from.id) {
+        if (neigh.isMine(game)) value -= 2
+        else                    value += 2
+      }
+    value /= zone.links.length
+    if (zone.isMine(game))    value -= 4
+    else                      value += 2
+    value -= zone.myPod * 4
+    value
+  }
+
+  def hasCandidates(zone: Zone, game: Game) = {
+    !zone.isMine(game) || zone.links.find(_.isMine(game)).isEmpty
+  }
+
+  def eval(zone: Zone, game: Game, from: Zone): Float = {
+    var value = util.Random.nextFloat
+    value += evalOnResources(zone, game)
+    value += evalOnLocation(zone, game)
+    value += evalOnPod(zone, game, from)
+    value
   }
 
   override def act(game: Game) = {
     var command = ""
     for (zone <- game.myPodZones) {
-      val destinations = zone.links.sortWith(eval(_, game) > eval(_, game))
+      val destinations = zone.links.sortWith(eval(_, game, zone) > eval(_, game, zone))
       command += buildCommand(zone, destinations(0), 1)
     }
     println(command)
@@ -88,11 +101,15 @@ case class Game(me: Competitor, other: Competitor, map: Map, var myPlatinum: Int
     zone.visible = visible
     if (me.id == 0) updatePods(zone, podsp0, podsp1)
     else updatePods(zone, podsp1, podsp0)
-    if (platinum != 0) zone.platinum = platinum
+    if (visible != 0)
+      zone.updateSetPlatinum(platinum)
   }
 
   def computeDistances(zone: Zone, currentDist: Int): Unit = {
     if (zone.distanceFromEnemy != -1 && currentDist > zone.distanceFromEnemy)
+      return
+    // use spare time in other turns
+    if (currentDist > 80)
       return
     zone.distanceFromEnemy = currentDist
     if (currentDist > fartest)
@@ -117,7 +134,29 @@ case class Game(me: Competitor, other: Competitor, map: Map, var myPlatinum: Int
 }
 
 case class Competitor(id: Int, var ownedZones: Int, var base: Zone = null)
-case class Zone(id: Int, var platinum: Int, var links: Array[Zone], var owner: Int, var myPod: Int, var otherPod: Int, var visible: Int, var distanceFromEnemy: Int = -1)
+case class Zone(id: Int, var platinum: Int, var links: Array[Zone], var owner: Int, var myPod: Int, var otherPod: Int, var visible: Int, var distanceFromEnemy: Int = -1, var resourceValue: Float = 0) {
+  def hasNeverBeenSeen(): Boolean = platinum == -1
+  def isMine(game: Game) = owner == game.me.id
+  def updateSetPlatinum(newPlatinum: Int) = {
+    if (platinum == -1 || platinum < newPlatinum) {
+      platinum = newPlatinum
+      if (platinum != 0)
+        updateResourceValue(platinum, Seq.empty[Int])
+    }
+  }
+  def updateResourceValue(value: Float, toExclude: Seq[Int]): Unit = {
+    if (toExclude contains id)    return
+    if (value < .5f)              return
+    if (toExclude.length > 10)    return
+    resourceValue += value
+
+    val nextVal = value / 2
+    val nextExclude = toExclude :+ id
+    for (neigh <- links)
+      neigh.updateResourceValue(nextVal, nextExclude)
+  }
+}
+
 case class Map(zones: Array[Zone])
 case class InitValues(myId: Int, zoneCount: Int, links: Array[Array[Int]])
 case class Pod(var position: Zone, var canMove: Boolean)
@@ -134,6 +173,7 @@ object initHelper {
     for (i <- 0 until linkcount) {
       links(i) = for (i <- readLine split " ") yield i.toInt
     }
+
     new InitValues(myid, zonecount, links)
   }
 
@@ -151,7 +191,7 @@ object initHelper {
 
   def zoneArray(zoneCount: Int): Array[Zone] = {
     Array.tabulate[Zone](zoneCount){
-        n => Zone((n + 1) - 1, 0, Array[Zone](), -1, 0, 0, 0)
+        n => Zone((n + 1) - 1, -1, Array[Zone](), -1, 0, 0, 0)
       }
   }
 }
