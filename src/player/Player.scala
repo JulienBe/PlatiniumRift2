@@ -1,3 +1,5 @@
+package player
+
 import scala.collection.mutable.ArrayBuffer
 
 /**

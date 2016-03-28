@@ -1,3 +1,5 @@
+package server
+
 /**
  * Created by julien on 3/12/16.
  *
