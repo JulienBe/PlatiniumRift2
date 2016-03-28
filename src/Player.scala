@@ -1,6 +1,9 @@
 import scala.collection.mutable.ArrayBuffer
 
-/* Created by julien on 3/12/16. */
+/**
+ *  Created by julien on 3/12/16.
+ *  Crappy limit on 1 class in cg ide :(
+ */
 
 object Player extends App {
   val game = init(initHelper.getValues)
@@ -10,97 +13,70 @@ object Player extends App {
 
 trait AI {
   def act(game: Game)
-  def buildCommand(from: Zone, to: Zone, nbPod: Int) = {
+  def buildCommand(from: Zone, to: Zone, nbPod: Int): String = {
     from.myPod -= 1
     to.myPod += 1
     nbPod + " " + from.id + " " + to.id + " "
   }
+  def eval(zone: Zone, game: Game, from: Zone): Float
 }
-// RANK : 333 / 912
-class RandomAI extends ClassicAI {  override def eval(zone: Zone, game: Game, from: Zone) = {scala.util.Random.nextFloat()}}
-// RANK : 192 / 912
-class ZergAI extends ClassicAI {    override def eval(zone: Zone, game: Game, from: Zone) = {-zone.distanceFromEnemy}}
-// RANK :  89 / 913
+
 class ClassicAI extends AI {
 
-  def evalOnResources(zone: Zone, game: Game) = {
-    var value = 0
-    if (!zone.isMine(game))
-      value += zone.platinum * 4
-    for (neigh <- zone.links) {
-      if (!zone.isMine(game))
-        value += neigh.platinum * 2
+  def eval(zone: Zone, game: Game, from: Zone): Float = { 0 }
+
+  def evalGlobal(zone: Zone, game: Game) = {
+    var value = util.Random.nextFloat()
+    value += game.fartest - zone.distanceFromEnemy
+    if (zone.isMine(game)) {
+      if (zone.isThreatened(game))
+        value += zone.resourceValue
+    } else {
+      value += zone.resourceValue
+      value += zone.platinum * 2
+      value *= 2
     }
-    value
-  }
-
-  def evalOnLocation(zone: Zone, game: Game) = {
-    var value = game.fartest - zone.distanceFromEnemy
-    for (neigh <- zone.links)
-      if (neigh.hasNeverBeenSeen())
-        value += 10
-    value
-  }
-
-  def evalOnPod(zone: Zone, game: Game, from: Zone) = {
-    var value = 1f
-    for (neigh <- zone.links)
-      if (neigh.id != from.id) {
-        if (neigh.isMine(game)) value -= 2
-        else                    value += 2
-      }
-    value /= zone.links.length
-    if (zone.isMine(game))    value -= 4
-    else                      value += 2
-    value -= zone.myPod * 4
-    value
-  }
-
-  def hasCandidates(zone: Zone, game: Game) = {
-    !zone.isMine(game) || zone.links.find(_.isMine(game)).isEmpty
-  }
-
-  def eval(zone: Zone, game: Game, from: Zone): Float = {
-    var value = util.Random.nextFloat
-    value += evalOnResources(zone, game)
-    value += evalOnLocation(zone, game)
-    value += evalOnPod(zone, game, from)
     value
   }
 
   override def act(game: Game) = {
     var command = ""
+    for (zone <- game.map.zones) {
+      zone.globalValue = evalGlobal(zone, game)
+    }
     for (zone <- game.myPodZones) {
-      val destinations = zone.links.sortWith(eval(_, game, zone) > eval(_, game, zone))
+      val destinations = zone.links.sortWith(_.globalValue > _.globalValue)
       command += buildCommand(zone, destinations(0), 1)
+      destinations(0).globalValue /= 1 + (2.5f / game.turn)
     }
     println(command)
   }
 }
 
-case class Game(me: Competitor, other: Competitor, map: Map, var myPlatinum: Int, myPodZones: ArrayBuffer[Zone], var fartest: Int = -1) {
+case class Game(me: Competitor, other: Competitor, map: Map, var myPlatinum: Int, myPodZones: ArrayBuffer[Zone], var fartest: Int = -1, var turn: Int = 1) {
 
   def play(ai: AI) = {
     while (true) {
       myPlatinum = readInt
       myPodZones.clear()
-      for (zone <- map.zones) {
-        // visible: 1 if one of your units can see this tile, else 0
-        // platinum: the amount of Platinum this zone can provide (0 if hidden by fog)
-        val Array(zoneId, ownerid, podsp0, podsp1, visible, platinum) = for (i <- readLine split " ") yield i.toInt
-        findEnemyBase(zone, ownerid)
-        updateDatas(zone, ownerid, podsp0, podsp1, visible, platinum)
-      }
+      map.zones.foreach(processZoneInfo(_))
       ai.act(this)
+      turn += 1
       println("WAIT") // second line no longer used (see the protocol in the statement for details)
     }
   }
 
-  def updateDatas(zone: Zone, ownerid: Int, podsp0: Int, podsp1: Int, visible: Int, platinum: Int): Unit = {
+  def processZoneInfo(zone: Zone): Unit = {
+    val Array(zoneId, ownerId, podId0, podId1, visible, platinum) = for (i <- readLine split " ") yield i.toInt
+    findEnemyBase(zone, ownerId)
+    updatezoneDatas(zone, ownerId, podId0, podId1, visible, platinum)
+  }
+
+  def updatezoneDatas(zone: Zone, ownerid: Int, podsp0: Int, podsp1: Int, visible: Int, platinum: Int): Unit = {
     zone.owner = ownerid
     zone.visible = visible
     if (me.id == 0) updatePods(zone, podsp0, podsp1)
-    else updatePods(zone, podsp1, podsp0)
+    else            updatePods(zone, podsp1, podsp0)
     if (visible != 0)
       zone.updateSetPlatinum(platinum)
   }
@@ -108,20 +84,20 @@ case class Game(me: Competitor, other: Competitor, map: Map, var myPlatinum: Int
   def computeDistances(zone: Zone, currentDist: Int): Unit = {
     if (zone.distanceFromEnemy != -1 && currentDist > zone.distanceFromEnemy)
       return
-    // use spare time in other turns
+    // TODO : use spare time in other turns
     if (currentDist > 80)
       return
-    zone.distanceFromEnemy = currentDist
     if (currentDist > fartest)
       fartest = currentDist
-    for (neigh <- zone.links)
-      computeDistances(neigh, currentDist + 1)
+
+    zone.distanceFromEnemy = currentDist
+    zone.links.foreach(computeDistances(_, currentDist + 1))
   }
 
   def findEnemyBase(zone: Zone, ownerid: Int): Unit = {
     if (other.base == null && ownerid == other.id) {
       other.base = zone
-      computeDistances(zone, 0)
+      computeDistances(other.base, 0)
     }
   }
 
@@ -134,14 +110,19 @@ case class Game(me: Competitor, other: Competitor, map: Map, var myPlatinum: Int
 }
 
 case class Competitor(id: Int, var ownedZones: Int, var base: Zone = null)
-case class Zone(id: Int, var platinum: Int, var links: Array[Zone], var owner: Int, var myPod: Int, var otherPod: Int, var visible: Int, var distanceFromEnemy: Int = -1, var resourceValue: Float = 0) {
+
+case class Zone(id: Int, var platinum: Int, var links: Array[Zone], var owner: Int, var myPod: Int, var otherPod: Int, var visible: Int, var distanceFromEnemy: Int = -1, var resourceValue: Float = 0, var globalValue: Float = 0) {
+
   def hasNeverBeenSeen(): Boolean = platinum == -1
-  def isMine(game: Game) = owner == game.me.id
+
+  def isThreatened(game: Game): Boolean = links.exists(!_.isMine(game))
+  def isMine(game: Game):       Boolean = owner == game.me.id
+
   def updateSetPlatinum(newPlatinum: Int) = {
     if (platinum == -1 || platinum < newPlatinum) {
       platinum = newPlatinum
       if (platinum != 0)
-        updateResourceValue(platinum, Seq.empty[Int])
+        updateResourceValue(platinum * 2, Seq.empty[Int])
     }
   }
   def updateResourceValue(value: Float, toExclude: Seq[Int]): Unit = {
@@ -152,8 +133,7 @@ case class Zone(id: Int, var platinum: Int, var links: Array[Zone], var owner: I
 
     val nextVal = value / 2
     val nextExclude = toExclude :+ id
-    for (neigh <- links)
-      neigh.updateResourceValue(nextVal, nextExclude)
+    links.foreach(_.updateResourceValue(nextVal, nextExclude))
   }
 }
 
@@ -178,7 +158,7 @@ object initHelper {
   }
 
   def init(values: InitValues): Game = {
-    val map = Map(zoneArray(values.zoneCount))
+    val map = Map(initZoneArray(values.zoneCount))
     val game = Game(Competitor(values.myId, 1), Competitor(1 - values.myId, 1), map, 0, ArrayBuffer[Zone]())
 
     for (i <- 0 until values.links.length) {
@@ -189,7 +169,7 @@ object initHelper {
     game
   }
 
-  def zoneArray(zoneCount: Int): Array[Zone] = {
+  def initZoneArray(zoneCount: Int): Array[Zone] = {
     Array.tabulate[Zone](zoneCount){
         n => Zone((n + 1) - 1, -1, Array[Zone](), -1, 0, 0, 0)
       }
