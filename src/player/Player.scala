@@ -10,11 +10,16 @@ import scala.collection.mutable.ArrayBuffer
 object Player extends App {
   val game = init(initHelper.getValues)
   def init(values: InitValues) = { initHelper.init(values) }
-  game.play(new ClassicAI)
+  game.play(new Explorer)
 }
 
 trait AI {
-  def act(game: Game)
+  var command = ""
+  def act(game: Game): Unit = printCommand(command)
+  def printCommand(command: String) = {
+    println(command)
+    this.command = ""
+  }
   def buildCommand(from: Zone, to: Zone, nbPod: Int): String = {
     from.myPod -= 1
     to.myPod += 1
@@ -23,36 +28,23 @@ trait AI {
   def eval(zone: Zone, game: Game, from: Zone): Float
 }
 
-class ClassicAI extends AI {
-
-  def eval(zone: Zone, game: Game, from: Zone): Float = { 0 }
-
-  def evalGlobal(zone: Zone, game: Game) = {
-    var value = util.Random.nextFloat()
-    value += game.fartest - zone.distanceFromEnemy
-    if (zone.isMine(game)) {
-      if (zone.isThreatened(game))
-        value += zone.resourceValue
-    } else {
-      value += zone.resourceValue
-      value += zone.platinum * 2
-      value *= 2
-    }
-    value
-  }
-
-  override def act(game: Game) = {
-    var command = ""
-    for (zone <- game.map.zones) {
-      zone.globalValue = evalGlobal(zone, game)
-    }
+class Explorer extends AI {
+  override def act(game: Game): Unit = {
     for (zone <- game.myPodZones) {
-      val destinations = zone.links.sortWith(_.globalValue > _.globalValue)
-      command += buildCommand(zone, destinations(0), 1)
-      destinations(0).globalValue /= 1 + (2.5f / game.turn)
+      val candidates = zone.links.filter(
+        z => z.links.exists(_.hasNeverBeenSeen())
+      )
+      if (candidates.length > 0) {
+        command += buildCommand(zone, candidates(util.Random.nextInt(candidates.length)), 1)
+      } else {
+        zone.links.sortWith(_.myPod > _.myPod)
+        command += buildCommand(zone, zone.links(util.Random.nextInt(zone.links.length)), 1)
+      }
     }
-    println(command)
+    super.act(game)
   }
+
+  override def eval(zone: Zone, game: Game, from: Zone): Float = ???
 }
 
 case class Game(me: Competitor, other: Competitor, map: Map, var myPlatinum: Int, myPodZones: ArrayBuffer[Zone], var fartest: Int = -1, var turn: Int = 1) {
@@ -123,6 +115,7 @@ case class Zone(id: Int, var platinum: Int, var links: Array[Zone], var owner: I
   def updateSetPlatinum(newPlatinum: Int) = {
     if (platinum == -1 || platinum < newPlatinum) {
       platinum = newPlatinum
+      Console.err.println(id + "::" + platinum)
       if (platinum != 0)
         updateResourceValue(platinum * 2, Seq.empty[Int])
     }
