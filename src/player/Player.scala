@@ -55,6 +55,11 @@ case class Game(me: Competitor, other: Competitor, map: Map, var myPlatinum: Int
       myPodZones.clear()
       map.zones.foreach(processZoneInfo(_))
       ai.act(this)
+
+      for (i <- (turn-1) * 10 until turn*10 )
+        if (i < map.zones.length)
+          map.zones(i).links.foreach(z => Console.err.println(z.id + "+" + map.zones(i).id))
+
       turn += 1
       println("WAIT") // second line no longer used (see the protocol in the statement for details)
     }
@@ -115,7 +120,7 @@ case class Zone(id: Int, var platinum: Int, var links: Array[Zone], var owner: I
   def updateSetPlatinum(newPlatinum: Int) = {
     if (platinum == -1 || platinum < newPlatinum) {
       platinum = newPlatinum
-      Console.err.println(id + "::" + platinum)
+      Console.err.println(id + ":" + platinum)
       if (platinum != 0)
         updateResourceValue(platinum * 2, Seq.empty[Int])
     }
