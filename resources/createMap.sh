@@ -9,6 +9,6 @@ LINKS=`echo $FULL | sed 's/ /\n/g' | grep '+'`
 ZONES=`echo $FULL | sed 's/ /\n/g' | grep ':'`
 
 echo "$FULL" > "$2/full"
-echo "$LINKS" > "$2/links"
-echo "$ZONES" > "$2/zones"
-touch "$2/$3:$4"
+echo "$LINKS" | sort -nr | sed '/^$/d' > "$2/links"
+echo "$ZONES" | sort -nr | sed '/^$/d' > "$2/zones"
+echo "$3:$4" > "$2/ids"
