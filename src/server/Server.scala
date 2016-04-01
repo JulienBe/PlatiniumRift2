@@ -1,5 +1,13 @@
 package server
 
+import java.io.File
+
+import player._
+import test.ZergAI
+
+import scala.collection.mutable.ArrayBuffer
+import scala.io.Source
+
 /**
  * Created by julien on 3/12/16.
  *
@@ -20,5 +28,45 @@ package server
  */
 
 class Server {
+
+  val maps = listOfMaps()
+
+  def run() = {
+    val mapDir = maps(util.Random.nextInt(maps.length))
+    val map = createMap(mapDir)
+    val ids = getIds(mapDir)
+    val player1 = new SimulatedPlayer(Game(Competitor(0, 1), Competitor(1, 1), map, 0, ArrayBuffer[Zone]()), new Explorer(), ids(0))
+    val player2 = new SimulatedPlayer(Game(Competitor(1, 1), Competitor(0, 1), map, 0, ArrayBuffer[Zone]()), new Explorer(), ids(1))
+  }
+
+  def getIds(dir: File): Array[Int] = {
+    val lines = Source.fromFile(new File(dir.getAbsolutePath + "/ids")).getLines()
+    val line = lines.next().split(":")
+    Array(line(0).toInt, line(1).toInt)
+  }
+
+  def createMap(dir: File): Map = {
+    val zones = getZones(dir)
+    populateLinks(dir, zones)
+    Map(zones)
+  }
+
+  def populateLinks(dir: File, zones: Array[Zone]) = {
+    val links = Source.fromFile(new File(dir.getAbsolutePath + "/links")).getLines()
+    for (line <- links) {
+      val link = line.split(":")
+      zones(link(0).toInt).links :+= zones(link(1).toInt)
+    }
+  }
+
+  def getZones(dir: File): Array[Zone] = {
+    val zones = Source.fromFile(new File(dir.getAbsolutePath + "/zones")).getLines()
+    initHelper.initZoneArray(zones.length - 1)
+  }
+
+  def listOfMaps(): List[File] = {
+    val mapDir = new File("resources/")
+    mapDir.listFiles().toList
+  }
 
 }

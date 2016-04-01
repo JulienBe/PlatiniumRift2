@@ -7,10 +7,12 @@ import scala.collection.mutable.ArrayBuffer
  *  Crappy limit on 1 class in cg ide :(
  */
 
-object Player extends App {
-  val game = init(initHelper.getValues)
-  def init(values: InitValues) = { initHelper.init(values) }
-  game.play(new Explorer)
+object Player extends App {  new PlayerClass().play(initHelper.init(initHelper.getValues), new Explorer) }
+
+class PlayerClass {
+  def play(game: Game, aI: AI) = {
+    game.play(aI)
+  }
 }
 
 trait AI {
